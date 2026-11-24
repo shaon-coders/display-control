@@ -1,0 +1,308 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 AI Control</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: #101827;
+  color: white;
+  font-family: Arial;
+  padding: 25px;
+}
+
+.container {
+  max-width: 850px;
+  margin: auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.status {
+  padding: 10px 15px;
+  border-radius: 20px;
+  background: #7f1d1d;
+}
+
+.connected {
+  background: #14532d;
+  color: #86efac;
+}
+
+.panel {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 14px;
+  margin-top: 25px;
+}
+
+input, button {
+  padding: 13px;
+  border-radius: 8px;
+  border: 0;
+}
+
+input {
+  width: 100%;
+  margin: 10px 0;
+  background: #101827;
+  color: white;
+}
+
+button {
+  background: #0284c7;
+  color: white;
+  cursor: pointer;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 13px;
+  padding: 25px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: #38bdf8;
+  background: #26364f;
+}
+
+.card span {
+  font-size: 35px;
+}
+
+#logs {
+  color: #86efac;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+@media(max-width:600px) {
+  .cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="header">
+  <div>
+    <h1>AI Assistant</h1>
+    <p>ESP32-C3 Control Panel</p>
+  </div>
+
+  <div id="status" class="status">
+    Disconnected
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Connect Your ESP32</h2>
+
+  <input
+    id="espIP"
+    placeholder="Enter ESP32 IP e.g. 192.168.1.50"
+  >
+
+  <button onclick="connectDevice()">
+    Connect Device
+  </button>
+
+  <p id="deviceInfo">Not connected</p>
+</div>
+
+<div class="panel">
+  <h2>Select Display Mode</h2>
+
+  <div class="cards">
+
+    <div class="card" onclick="selectMode('HOME')">
+      <span>🏠</span>
+      <h3>Home</h3>
+    </div>
+
+    <div class="card" onclick="selectMode('AI')">
+      <span>🤖</span>
+      <h3>AI</h3>
+    </div>
+
+    <div class="card" onclick="selectMode('CLOCK')">
+      <span>🕒</span>
+      <h3>Clock</h3>
+    </div>
+
+    <div class="card" onclick="selectMode('WEATHER')">
+      <span>🌤️</span>
+      <h3>Weather</h3>
+    </div>
+
+    <div class="card" onclick="selectMode('MUSIC')">
+      <span>🎵</span>
+      <h3>Music</h3>
+    </div>
+
+    <div class="card" onclick="selectMode('SETTINGS')">
+      <span>⚙️</span>
+      <h3>Settings</h3>
+    </div>
+
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Custom Message</h2>
+
+  <input id="title" placeholder="Enter title">
+  <input id="content" placeholder="Enter content">
+
+  <button onclick="sendCustom()">
+    Send to OLED
+  </button>
+</div>
+
+<div class="panel">
+  <h3>Activity Log</h3>
+  <div id="logs">Website Started</div>
+</div>
+
+</div>
+
+<script>
+let socket = null;
+
+function log(message) {
+  const line = document.createElement("div");
+  line.textContent =
+    new Date().toLocaleTimeString() + " - " + message;
+
+  document.getElementById("logs").prepend(line);
+}
+
+function setStatus(online) {
+  const status = document.getElementById("status");
+
+  status.textContent = online ? "Connected" : "Disconnected";
+  status.className = online
+    ? "status connected"
+    : "status";
+}
+
+function connectDevice() {
+  const ip = document.getElementById("espIP").value.trim();
+
+  if (!ip) {
+    alert("Enter ESP32 IP Address");
+    return;
+  }
+
+  if (socket) {
+    socket.onclose = null;
+    socket.close();
+  }
+
+  socket = new WebSocket(`ws://${ip}:81/`);
+
+  socket.onopen = function() {
+    setStatus(true);
+    document.getElementById("deviceInfo").textContent =
+      "ESP32 Connected: " + ip;
+
+    log("ESP32 Connected Successfully");
+  };
+
+  socket.onmessage = function(event) {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "DEVICE_STATUS") {
+        log("Device ready: " + data.mode);
+      }
+
+      if (data.type === "DISPLAY_UPDATED") {
+        log("OLED changed to " + data.mode);
+      }
+    } catch(e) {
+      log("Received invalid message");
+    }
+  };
+
+  socket.onerror = function() {
+    log("Connection error");
+  };
+
+  socket.onclose = function() {
+    setStatus(false);
+    document.getElementById("deviceInfo").textContent =
+      "Connection closed";
+
+    log("ESP32 Disconnected");
+  };
+}
+
+function sendData(data) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    alert("Connect ESP32 first!");
+    return;
+  }
+
+  socket.send(JSON.stringify(data));
+}
+
+function selectMode(mode) {
+  sendData({
+    type: "DISPLAY_CHANGE",
+    mode: mode,
+    title: mode + " Screen",
+    content: "Welcome to " + mode
+  });
+
+  log("Sending " + mode);
+}
+
+function sendCustom() {
+  const title = document.getElementById("title").value;
+  const content = document.getElementById("content").value;
+
+  if (!title.trim() || !content.trim()) {
+    alert("Enter title and content");
+    return;
+  }
+
+  sendData({
+    type: "DISPLAY_CHANGE",
+    mode: "CUSTOM",
+    title: title,
+    content: content
+  });
+
+  log("Custom message sent");
+}
+</script>
+
+</body>
+</html>
